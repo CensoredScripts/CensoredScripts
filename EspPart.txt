@@ -1,4 +1,4 @@
--- ✅ Full ESP + Serverhop + Persistent Save (AutoHop fixed to find non-full servers)
+-- ✅ Full ESP + Serverhop + Persistent Save + Individual [Remove] Buttons
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -205,22 +205,48 @@ input.Font = Enum.Font.Gotham
 input.TextSize = 14
 Instance.new("UICorner", input)
 
-local listLabel = Instance.new("TextLabel", frame)
-listLabel.Size = UDim2.new(1, -20, 0, 60)
-listLabel.Position = UDim2.new(0, 10, 0, 100)
-listLabel.TextColor3 = Color3.new(1, 1, 1)
-listLabel.Font = Enum.Font.Gotham
-listLabel.TextSize = 14
-listLabel.TextWrapped = true
-listLabel.TextYAlignment = Enum.TextYAlignment.Top
-listLabel.BackgroundTransparency = 1
+local scroll = Instance.new("ScrollingFrame", frame)
+scroll.Size = UDim2.new(1, -20, 0, 60)
+scroll.Position = UDim2.new(0, 10, 0, 100)
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroll.ScrollBarThickness = 6
+scroll.BackgroundTransparency = 1
 
 local function updateList()
-    if #trackedModels == 0 then
-        listLabel.Text = "Tracking: (none)"
-    else
-        listLabel.Text = "Tracking:\n" .. table.concat(trackedModels, ", ")
-    end
+	scroll:ClearAllChildren()
+	for i, name in ipairs(trackedModels) do
+		local item = Instance.new("Frame", scroll)
+		item.Size = UDim2.new(1, 0, 0, 25)
+		item.Position = UDim2.new(0, 0, 0, (i - 1) * 28)
+		item.BackgroundTransparency = 1
+
+		local label = Instance.new("TextLabel", item)
+		label.Text = name
+		label.Size = UDim2.new(0.7, 0, 1, 0)
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.Gotham
+		label.TextSize = 14
+		label.TextXAlignment = Enum.TextXAlignment.Left
+
+		local btn = Instance.new("TextButton", item)
+		btn.Size = UDim2.new(0.3, 0, 1, 0)
+		btn.Position = UDim2.new(0.7, 0, 0, 0)
+		btn.Text = "[ Remove ]"
+		btn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+		btn.TextColor3 = Color3.new(1, 1, 1)
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 12
+		Instance.new("UICorner", btn)
+
+		btn.MouseButton1Click:Connect(function()
+			table.remove(trackedModels, i)
+			clearESP()
+			saveData()
+			updateList()
+		end)
+	end
+	scroll.CanvasSize = UDim2.new(0, 0, 0, #trackedModels * 28)
 end
 updateList()
 
@@ -231,14 +257,6 @@ addBtn.Text = "➕ Add"
 addBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
 addBtn.TextColor3 = Color3.new(1, 1, 1)
 Instance.new("UICorner", addBtn)
-
-local removeBtn = Instance.new("TextButton", frame)
-removeBtn.Size = UDim2.new(0.48, -5, 0, 30)
-removeBtn.Position = UDim2.new(0.52, 5, 0, 170)
-removeBtn.Text = "🗑 Remove"
-removeBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
-removeBtn.TextColor3 = Color3.new(1, 1, 1)
-Instance.new("UICorner", removeBtn)
 
 local toggleESP = Instance.new("TextButton", frame)
 toggleESP.Size = UDim2.new(1, -20, 0, 30)
@@ -266,56 +284,42 @@ Instance.new("UICorner", hopBtn)
 
 -- Button logic
 addBtn.MouseButton1Click:Connect(function()
-    local name = input.Text:match("^%s*(.-)%s*$")
-    if name ~= "" and not table.find(trackedModels, name) then
-        table.insert(trackedModels, name)
-        saveData()
-        updateList()
-    end
-    input.Text = ""
-end)
-
-removeBtn.MouseButton1Click:Connect(function()
-    local name = input.Text:match("^%s*(.-)%s*$")
-    for i, v in ipairs(trackedModels) do
-        if v == name then
-            table.remove(trackedModels, i)
-            clearESP()
-            saveData()
-            updateList()
-            break
-        end
-    end
-    input.Text = ""
+	local name = input.Text:match("^%s*(.-)%s*$")
+	if name ~= "" and not table.find(trackedModels, name) then
+		table.insert(trackedModels, name)
+		saveData()
+		updateList()
+	end
+	input.Text = ""
 end)
 
 toggleESP.MouseButton1Click:Connect(function()
-    espEnabled = not espEnabled
-    toggleESP.Text = "Toggle ESP: " .. (espEnabled and "ON" or "OFF")
-    if not espEnabled then clearESP() end
+	espEnabled = not espEnabled
+	toggleESP.Text = "Toggle ESP: " .. (espEnabled and "ON" or "OFF")
+	if not espEnabled then clearESP() end
 end)
 
 toggleHop.MouseButton1Click:Connect(function()
-    autoHop = not autoHop
-    toggleHop.Text = "AutoHop: " .. (autoHop and "ON" or "OFF")
-    saveData()
+	autoHop = not autoHop
+	toggleHop.Text = "AutoHop: " .. (autoHop and "ON" or "OFF")
+	saveData()
 end)
 
 hopBtn.MouseButton1Click:Connect(function()
-    serverHop(true, status)
+	serverHop(true, status)
 end)
 
 -- Auto hop
 if autoHop then
-    task.delay(2, function()
-        serverHop(false, status)
-    end)
+	task.delay(2, function()
+		serverHop(false, status)
+	end)
 end
 
 -- Background scanner
 task.spawn(function()
-    while true do
-        if espEnabled then scan() end
-        task.wait(5)
-    end
+	while true do
+		if espEnabled then scan() end
+		task.wait(5)
+	end
 end)
