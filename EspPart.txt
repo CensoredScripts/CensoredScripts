@@ -1,0 +1,321 @@
+-- ✅ Full ESP + Serverhop + Persistent Save (AutoHop fixed to find non-full servers)
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local PlaceId = game.PlaceId
+
+local saveFile = "ModelESP_Models.txt"
+local settingsFile = "ModelESP_Settings.txt"
+
+local espTags = {}
+local trackedModels = {}
+local espEnabled = true
+local autoHop = false
+local gui
+
+-- Load saved data
+if isfile and readfile then
+    if isfile(saveFile) then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(saveFile))
+        end)
+        if ok and typeof(data) == "table" then trackedModels = data end
+    end
+    if isfile(settingsFile) then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(settingsFile))
+        end)
+        if ok and typeof(data) == "table" and data.autoHop ~= nil then
+            autoHop = data.autoHop
+        end
+    end
+end
+
+local function saveData()
+    if writefile then
+        writefile(saveFile, HttpService:JSONEncode(trackedModels))
+        writefile(settingsFile, HttpService:JSONEncode({ autoHop = autoHop }))
+    end
+end
+
+local function rainbow()
+    return Color3.fromHSV((tick() % 5) / 5, 1, 1)
+end
+
+local function getBasePart(model)
+    return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function createESP(model)
+    local part = getBasePart(model)
+    if not part then return end
+    local tag = Instance.new("BillboardGui")
+    tag.Name = "ESPTag"
+    tag.Adornee = part
+    tag.AlwaysOnTop = true
+    tag.Size = UDim2.new(0, 200, 0, 40)
+    tag.StudsOffset = Vector3.new(0, part.Size.Y + 2, 0)
+    tag.Parent = part
+
+    local text = Instance.new("TextLabel", tag)
+    text.BackgroundTransparency = 1
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.Font = Enum.Font.GothamBold
+    text.Text = model.Name
+    text.TextSize = 16
+    text.TextStrokeTransparency = 0
+    text.TextStrokeColor3 = Color3.new(0, 0, 0)
+    text.TextColor3 = Color3.new(1, 1, 1)
+    text.Name = "Text"
+
+    espTags[model] = tag
+end
+
+local function clearESP()
+    for model, tag in pairs(espTags) do
+        if tag then tag:Destroy() end
+    end
+    espTags = {}
+end
+
+local function scan()
+    if not espEnabled then return end
+    for _, model in ipairs(Workspace:GetDescendants()) do
+        if model:IsA("Model") and not espTags[model] then
+            for _, name in ipairs(trackedModels) do
+                if model.Name == name then
+                    createESP(model)
+                end
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    for model, tag in pairs(espTags) do
+        if tag and tag:FindFirstChild("Text") then
+            tag.Text.TextColor3 = rainbow()
+        end
+    end
+end)
+
+local function checkFound()
+    for _, model in ipairs(Workspace:GetDescendants()) do
+        if model:IsA("Model") then
+            for _, name in ipairs(trackedModels) do
+                if model.Name == name then return model.Name end
+            end
+        end
+    end
+end
+
+local function showFoundMessage()
+    local msg = Instance.new("TextLabel")
+    msg.Size = UDim2.new(1, 0, 0, 50)
+    msg.Position = UDim2.new(0, 0, 0, 0)
+    msg.BackgroundTransparency = 1
+    msg.Text = "✔ FOUND"
+    msg.Font = Enum.Font.GothamBlack
+    msg.TextSize = 50
+    msg.TextColor3 = Color3.fromRGB(0, 255, 0)
+    msg.TextStrokeTransparency = 0
+    msg.TextStrokeColor3 = Color3.new(0, 0, 0)
+    msg.Parent = gui
+    task.delay(5, function() msg:Destroy() end)
+end
+
+local function serverHop(force, statusLabel)
+    local found = checkFound()
+    if found and not force then
+        statusLabel.Text = "Status: Already found ("..found..")"
+        showFoundMessage()
+        return
+    end
+
+    statusLabel.Text = "Status: Finding server..."
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+    end)
+
+    if success and result and result.data then
+        local servers = {}
+        for _, s in ipairs(result.data) do
+            if s.playing < s.maxPlayers - 2 and s.id ~= game.JobId then
+                table.insert(servers, s)
+            end
+        end
+        if #servers > 0 then
+            local chosen = servers[math.random(1, #servers)]
+            statusLabel.Text = "Status: Hopping to server..."
+            task.wait(1)
+            saveData()
+            TeleportService:TeleportToPlaceInstance(PlaceId, chosen.id, LocalPlayer)
+        else
+            statusLabel.Text = "Status: No good servers"
+        end
+    else
+        statusLabel.Text = "Status: Fetch error"
+    end
+end
+
+-- GUI Setup
+gui = Instance.new("ScreenGui", CoreGui)
+gui.Name = "ModelESP_GUI"
+gui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.new(0, 400, 0, 350)
+frame.Position = UDim2.new(0, 40, 0, 100)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.Active = true
+frame.Draggable = true
+Instance.new("UICorner", frame)
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, 0, 0, 40)
+title.Text = "🌈 Model ESP + Serverhop"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.BackgroundTransparency = 1
+
+local status = Instance.new("TextLabel", frame)
+status.Size = UDim2.new(1, -20, 0, 20)
+status.Position = UDim2.new(0, 10, 0, 40)
+status.Text = "Status: Idle"
+status.TextColor3 = Color3.new(1, 1, 1)
+status.Font = Enum.Font.Gotham
+status.TextSize = 14
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.BackgroundTransparency = 1
+
+local input = Instance.new("TextBox", frame)
+input.Size = UDim2.new(1, -20, 0, 30)
+input.Position = UDim2.new(0, 10, 0, 65)
+input.PlaceholderText = "Enter model name (case-sensitive)"
+input.Text = ""
+input.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+input.TextColor3 = Color3.new(1, 1, 1)
+input.Font = Enum.Font.Gotham
+input.TextSize = 14
+Instance.new("UICorner", input)
+
+local listLabel = Instance.new("TextLabel", frame)
+listLabel.Size = UDim2.new(1, -20, 0, 60)
+listLabel.Position = UDim2.new(0, 10, 0, 100)
+listLabel.TextColor3 = Color3.new(1, 1, 1)
+listLabel.Font = Enum.Font.Gotham
+listLabel.TextSize = 14
+listLabel.TextWrapped = true
+listLabel.TextYAlignment = Enum.TextYAlignment.Top
+listLabel.BackgroundTransparency = 1
+
+local function updateList()
+    if #trackedModels == 0 then
+        listLabel.Text = "Tracking: (none)"
+    else
+        listLabel.Text = "Tracking:\n" .. table.concat(trackedModels, ", ")
+    end
+end
+updateList()
+
+local addBtn = Instance.new("TextButton", frame)
+addBtn.Size = UDim2.new(0.48, -5, 0, 30)
+addBtn.Position = UDim2.new(0, 10, 0, 170)
+addBtn.Text = "➕ Add"
+addBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+addBtn.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", addBtn)
+
+local removeBtn = Instance.new("TextButton", frame)
+removeBtn.Size = UDim2.new(0.48, -5, 0, 30)
+removeBtn.Position = UDim2.new(0.52, 5, 0, 170)
+removeBtn.Text = "🗑 Remove"
+removeBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+removeBtn.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", removeBtn)
+
+local toggleESP = Instance.new("TextButton", frame)
+toggleESP.Size = UDim2.new(1, -20, 0, 30)
+toggleESP.Position = UDim2.new(0, 10, 0, 210)
+toggleESP.Text = "Toggle ESP: ON"
+toggleESP.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+toggleESP.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", toggleESP)
+
+local toggleHop = Instance.new("TextButton", frame)
+toggleHop.Size = UDim2.new(1, -20, 0, 30)
+toggleHop.Position = UDim2.new(0, 10, 0, 250)
+toggleHop.Text = "AutoHop: " .. (autoHop and "ON" or "OFF")
+toggleHop.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
+toggleHop.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", toggleHop)
+
+local hopBtn = Instance.new("TextButton", frame)
+hopBtn.Size = UDim2.new(1, -20, 0, 30)
+hopBtn.Position = UDim2.new(0, 10, 0, 290)
+hopBtn.Text = "🔁 Force Serverhop"
+hopBtn.BackgroundColor3 = Color3.fromRGB(255, 130, 0)
+hopBtn.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", hopBtn)
+
+-- Button logic
+addBtn.MouseButton1Click:Connect(function()
+    local name = input.Text:match("^%s*(.-)%s*$")
+    if name ~= "" and not table.find(trackedModels, name) then
+        table.insert(trackedModels, name)
+        saveData()
+        updateList()
+    end
+    input.Text = ""
+end)
+
+removeBtn.MouseButton1Click:Connect(function()
+    local name = input.Text:match("^%s*(.-)%s*$")
+    for i, v in ipairs(trackedModels) do
+        if v == name then
+            table.remove(trackedModels, i)
+            clearESP()
+            saveData()
+            updateList()
+            break
+        end
+    end
+    input.Text = ""
+end)
+
+toggleESP.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    toggleESP.Text = "Toggle ESP: " .. (espEnabled and "ON" or "OFF")
+    if not espEnabled then clearESP() end
+end)
+
+toggleHop.MouseButton1Click:Connect(function()
+    autoHop = not autoHop
+    toggleHop.Text = "AutoHop: " .. (autoHop and "ON" or "OFF")
+    saveData()
+end)
+
+hopBtn.MouseButton1Click:Connect(function()
+    serverHop(true, status)
+end)
+
+-- Auto hop
+if autoHop then
+    task.delay(2, function()
+        serverHop(false, status)
+    end)
+end
+
+-- Background scanner
+task.spawn(function()
+    while true do
+        if espEnabled then scan() end
+        task.wait(5)
+    end
+end)
