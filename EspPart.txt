@@ -1,4 +1,4 @@
--- ✅ Full ESP + Serverhop + Persistent Save + Individual [Remove] Buttons
+-- ✅ Full ESP + Serverhop + Persistent Save + [Remove] + Big ESP + AutoHop Retry
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -17,150 +17,169 @@ local trackedModels = {}
 local espEnabled = true
 local autoHop = false
 local gui
+local lastFoundModel = nil
 
 -- Load saved data
 if isfile and readfile then
-    if isfile(saveFile) then
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(readfile(saveFile))
-        end)
-        if ok and typeof(data) == "table" then trackedModels = data end
-    end
-    if isfile(settingsFile) then
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(readfile(settingsFile))
-        end)
-        if ok and typeof(data) == "table" and data.autoHop ~= nil then
-            autoHop = data.autoHop
-        end
-    end
+	if isfile(saveFile) then
+		local ok, data = pcall(function()
+			return HttpService:JSONDecode(readfile(saveFile))
+		end)
+		if ok and typeof(data) == "table" then trackedModels = data end
+	end
+	if isfile(settingsFile) then
+		local ok, data = pcall(function()
+			return HttpService:JSONDecode(readfile(settingsFile))
+		end)
+		if ok and typeof(data) == "table" and data.autoHop ~= nil then
+			autoHop = data.autoHop
+		end
+	end
 end
 
 local function saveData()
-    if writefile then
-        writefile(saveFile, HttpService:JSONEncode(trackedModels))
-        writefile(settingsFile, HttpService:JSONEncode({ autoHop = autoHop }))
-    end
+	if writefile then
+		writefile(saveFile, HttpService:JSONEncode(trackedModels))
+		writefile(settingsFile, HttpService:JSONEncode({ autoHop = autoHop }))
+	end
 end
 
 local function rainbow()
-    return Color3.fromHSV((tick() % 5) / 5, 1, 1)
+	return Color3.fromHSV((tick() % 5) / 5, 1, 1)
 end
 
 local function getBasePart(model)
-    return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+	return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
 end
 
 local function createESP(model)
-    local part = getBasePart(model)
-    if not part then return end
-    local tag = Instance.new("BillboardGui")
-    tag.Name = "ESPTag"
-    tag.Adornee = part
-    tag.AlwaysOnTop = true
-    tag.Size = UDim2.new(0, 200, 0, 40)
-    tag.StudsOffset = Vector3.new(0, part.Size.Y + 2, 0)
-    tag.Parent = part
+	local part = getBasePart(model)
+	if not part then return end
+	local tag = Instance.new("BillboardGui")
+	tag.Name = "ESPTag"
+	tag.Adornee = part
+	tag.AlwaysOnTop = true
+	tag.Size = UDim2.new(0, 200, 0, 50)
+	tag.StudsOffset = Vector3.new(0, part.Size.Y + 2, 0)
+	tag.Parent = part
 
-    local text = Instance.new("TextLabel", tag)
-    text.BackgroundTransparency = 1
-    text.Size = UDim2.new(1, 0, 1, 0)
-    text.Font = Enum.Font.GothamBold
-    text.Text = model.Name
-    text.TextSize = 16
-    text.TextStrokeTransparency = 0
-    text.TextStrokeColor3 = Color3.new(0, 0, 0)
-    text.TextColor3 = Color3.new(1, 1, 1)
-    text.Name = "Text"
+	local text = Instance.new("TextLabel", tag)
+	text.BackgroundTransparency = 1
+	text.Size = UDim2.new(1, 0, 1, 0)
+	text.Font = Enum.Font.GothamBold
+	text.Text = model.Name
+	text.TextSize = 24 -- ⬆ Bigger ESP text
+	text.TextStrokeTransparency = 0
+	text.TextStrokeColor3 = Color3.new(0, 0, 0)
+	text.TextColor3 = Color3.new(1, 1, 1)
+	text.Name = "Text"
 
-    espTags[model] = tag
+	espTags[model] = tag
 end
 
 local function clearESP()
-    for model, tag in pairs(espTags) do
-        if tag then tag:Destroy() end
-    end
-    espTags = {}
+	for model, tag in pairs(espTags) do
+		if tag then tag:Destroy() end
+	end
+	espTags = {}
 end
 
 local function scan()
-    if not espEnabled then return end
-    for _, model in ipairs(Workspace:GetDescendants()) do
-        if model:IsA("Model") and not espTags[model] then
-            for _, name in ipairs(trackedModels) do
-                if model.Name == name then
-                    createESP(model)
-                end
-            end
-        end
-    end
+	if not espEnabled then return end
+	local found = false
+	for _, model in ipairs(Workspace:GetDescendants()) do
+		if model:IsA("Model") and not espTags[model] then
+			for _, name in ipairs(trackedModels) do
+				if model.Name == name then
+					createESP(model)
+					found = true
+				end
+			end
+		end
+	end
+	-- Auto-hop again if model disappeared
+	if lastFoundModel and not found and autoHop then
+		lastFoundModel = nil
+		task.delay(1, function()
+			serverHop(false, statusLabel)
+		end)
+	end
 end
 
 RunService.RenderStepped:Connect(function()
-    for model, tag in pairs(espTags) do
-        if tag and tag:FindFirstChild("Text") then
-            tag.Text.TextColor3 = rainbow()
-        end
-    end
+	for model, tag in pairs(espTags) do
+		if tag and tag:FindFirstChild("Text") then
+			tag.Text.TextColor3 = rainbow()
+		end
+	end
 end)
 
 local function checkFound()
-    for _, model in ipairs(Workspace:GetDescendants()) do
-        if model:IsA("Model") then
-            for _, name in ipairs(trackedModels) do
-                if model.Name == name then return model.Name end
-            end
-        end
-    end
+	for _, model in ipairs(Workspace:GetDescendants()) do
+		if model:IsA("Model") then
+			for _, name in ipairs(trackedModels) do
+				if model.Name == name then return model.Name end
+			end
+		end
+	end
 end
 
 local function showFoundMessage()
-    local msg = Instance.new("TextLabel")
-    msg.Size = UDim2.new(1, 0, 0, 50)
-    msg.Position = UDim2.new(0, 0, 0, 0)
-    msg.BackgroundTransparency = 1
-    msg.Text = "✔ FOUND"
-    msg.Font = Enum.Font.GothamBlack
-    msg.TextSize = 50
-    msg.TextColor3 = Color3.fromRGB(0, 255, 0)
-    msg.TextStrokeTransparency = 0
-    msg.TextStrokeColor3 = Color3.new(0, 0, 0)
-    msg.Parent = gui
-    task.delay(5, function() msg:Destroy() end)
+	local msg = Instance.new("TextLabel")
+	msg.Size = UDim2.new(1, 0, 0, 50)
+	msg.Position = UDim2.new(0, 0, 0, 0)
+	msg.BackgroundTransparency = 1
+	msg.Text = "✔ FOUND"
+	msg.Font = Enum.Font.GothamBlack
+	msg.TextSize = 50
+	msg.TextColor3 = Color3.fromRGB(0, 255, 0)
+	msg.TextStrokeTransparency = 0
+	msg.TextStrokeColor3 = Color3.new(0, 0, 0)
+	msg.Parent = gui
+	task.delay(5, function() msg:Destroy() end)
 end
 
-local function serverHop(force, statusLabel)
-    local found = checkFound()
-    if found and not force then
-        statusLabel.Text = "Status: Already found ("..found..")"
-        showFoundMessage()
-        return
-    end
+function serverHop(force, statusLabel)
+	local found = checkFound()
+	if found and not force then
+		statusLabel.Text = "Status: Already found (" .. found .. ")"
+		lastFoundModel = found
+		showFoundMessage()
+		return
+	end
 
-    statusLabel.Text = "Status: Finding server..."
-    local success, result = pcall(function()
-        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
-    end)
+	statusLabel.Text = "Status: Finding server..."
+	local success, result = pcall(function()
+		return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+	end)
 
-    if success and result and result.data then
-        local servers = {}
-        for _, s in ipairs(result.data) do
-            if s.playing < s.maxPlayers - 2 and s.id ~= game.JobId then
-                table.insert(servers, s)
-            end
-        end
-        if #servers > 0 then
-            local chosen = servers[math.random(1, #servers)]
-            statusLabel.Text = "Status: Hopping to server..."
-            task.wait(1)
-            saveData()
-            TeleportService:TeleportToPlaceInstance(PlaceId, chosen.id, LocalPlayer)
-        else
-            statusLabel.Text = "Status: No good servers"
-        end
-    else
-        statusLabel.Text = "Status: Fetch error"
-    end
+	if success and result and result.data then
+		local servers = {}
+		for _, s in ipairs(result.data) do
+			if s.playing < s.maxPlayers - 2 and s.id ~= game.JobId then
+				table.insert(servers, s)
+			end
+		end
+		if #servers > 0 then
+			local chosen = servers[math.random(1, #servers)]
+			statusLabel.Text = "Status: Hopping..."
+			task.wait(1)
+			saveData()
+			TeleportService:TeleportToPlaceInstance(PlaceId, chosen.id, LocalPlayer)
+		else
+			statusLabel.Text = "Status: No good servers"
+			if autoHop then
+				task.wait(5)
+				serverHop(false, statusLabel)
+			end
+		end
+	else
+		statusLabel.Text = "Status: Fetch error"
+		if autoHop then
+			task.wait(5)
+			serverHop(false, statusLabel)
+		end
+	end
 end
 
 -- GUI Setup
@@ -184,15 +203,15 @@ title.Font = Enum.Font.GothamBold
 title.TextSize = 18
 title.BackgroundTransparency = 1
 
-local status = Instance.new("TextLabel", frame)
-status.Size = UDim2.new(1, -20, 0, 20)
-status.Position = UDim2.new(0, 10, 0, 40)
-status.Text = "Status: Idle"
-status.TextColor3 = Color3.new(1, 1, 1)
-status.Font = Enum.Font.Gotham
-status.TextSize = 14
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.BackgroundTransparency = 1
+local statusLabel = Instance.new("TextLabel", frame)
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 0, 40)
+statusLabel.Text = "Status: Idle"
+statusLabel.TextColor3 = Color3.new(1, 1, 1)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 14
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.BackgroundTransparency = 1
 
 local input = Instance.new("TextBox", frame)
 input.Size = UDim2.new(1, -20, 0, 30)
@@ -306,13 +325,13 @@ toggleHop.MouseButton1Click:Connect(function()
 end)
 
 hopBtn.MouseButton1Click:Connect(function()
-	serverHop(true, status)
+	serverHop(true, statusLabel)
 end)
 
 -- Auto hop
 if autoHop then
 	task.delay(2, function()
-		serverHop(false, status)
+		serverHop(false, statusLabel)
 	end)
 end
 
